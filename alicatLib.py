@@ -188,7 +188,95 @@ class AlicatController():
             return pres
         except :
             return 0
-    
+
+    # ── PID ──────────────────────────────────────────────────────────────────
+    # Assembly 109 : Command Request  (UDINT cmd_id + DINT argument)
+    # Assembly 110 : Command Result   (UDINT id, DINT arg, UDINT status, DINT retval)
+    # IDs : 0=NOP, 8=set P, 9=set D, 10=set I, 13=set algo, 14=read gain
+    # Algo : 1=PDF, 2=PD2I  |  Gain idx : 0=P, 1=D, 2=I
+
+    _CMD_ASSEMBLY    = 109
+    _RESULT_ASSEMBLY = 110
+    _STATUS_SUCCESS  = 0
+    _STATUS_PROGRESS = 1
+
+    def _send_command(self, cmd_id: int, argument: int = 0,
+                      timeout: float = 1.0) -> 'dict | None':
+        """Envoie une commande CIP et lit le résultat dans Assembly 110."""
+        data = struct.pack('<Ii', cmd_id, argument)
+        if not self.write_assembly(self._CMD_ASSEMBLY, data):
+            return None
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            raw = self.read_assembly(self._RESULT_ASSEMBLY)
+            if raw and len(raw) >= 16:
+                result_id = struct.unpack('<I', raw[0:4])[0]
+                status    = struct.unpack('<I', raw[8:12])[0]
+                ret_val   = struct.unpack('<i', raw[12:16])[0]
+                if result_id == cmd_id and status != self._STATUS_PROGRESS:
+                    return {'status': status, 'return_value': ret_val}
+            time.sleep(0.05)
+        return None
+
+    def _nop(self):
+        """NOP — sépare des commandes identiques consécutives."""
+        self.write_assembly(self._CMD_ASSEMBLY, struct.pack('<Ii', 0, 0))
+        time.sleep(0.05)
+
+    def _read_gain(self, gain_idx: int) -> 'int | None':
+        """Lit un gain PID. gain_idx: 0=P, 1=D, 2=I."""
+        result = self._send_command(14, gain_idx)
+        if result and result['status'] == self._STATUS_SUCCESS:
+            return result['return_value']
+        return None
+
+    def get_pid(self) -> 'dict | None':
+        """
+        Lit les gains PID courants.
+        Retourne {'loop_type': 'PD/PDF'|'PD2I', 'P': int, 'D': int, 'I': int}
+        """
+        try:
+            p = self._read_gain(0); self._nop()
+            d = self._read_gain(1); self._nop()
+            i = self._read_gain(2)
+            if p is None or d is None or i is None:
+                return None
+            loop_type = getattr(self, '_last_algo', 'PD/PDF')
+            return {'loop_type': loop_type, 'P': p, 'D': d, 'I': i}
+        except Exception as e:
+            print(f"[get_pid] {e}")
+            return None
+
+    def set_pid(self, P: int = None, D: int = None, I: int = None,
+                loop_type: str = 'PD/PDF') -> bool:
+        """
+        Écrit les gains PID et sélectionne l'algorithme.
+        P, D, I : entiers 0–65535 (None = ne pas modifier)
+        loop_type : 'PD/PDF' ou 'PD2I'
+        """
+        try:
+            algo = 2 if loop_type == 'PD2I' else 1
+            r = self._send_command(13, algo)
+            if not r or r['status'] != self._STATUS_SUCCESS:
+                return False
+            self._last_algo = loop_type
+            self._nop()
+
+            for cmd_id, val in [(8, P), (9, D), (10, I)]:
+                if val is None:
+                    continue
+                if cmd_id == 10 and loop_type != 'PD2I':
+                    continue   # I ignoré en mode PDF
+                r = self._send_command(cmd_id, int(val))
+                if not r or r['status'] != self._STATUS_SUCCESS:
+                    return False
+                self._nop()
+            return True
+        except Exception as e:
+            print(f"[set_pid] {e}")
+            return False
+
+
     def display_readings(self, readings: Dict[str, Any]):
         """Affiche les lectures de manière formatée"""
         if not readings:

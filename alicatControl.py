@@ -6,25 +6,30 @@ pip install pycomm3
 """
 
 
-from PyQt6 import QtCore,uic
-from PyQt6.QtWidgets import QApplication,QWidget,QMainWindow,QVBoxLayout,QDial,QHBoxLayout,QDoubleSpinBox,QLabel
+from PyQt6 import QtCore
+from PyQt6.QtWidgets import (QApplication, QWidget, QMainWindow,
+                             QVBoxLayout, QDial, QHBoxLayout, QDoubleSpinBox,
+                             QLabel)
 from PyQt6.QtGui import QIcon
 import sys
 import time
 import qdarkstyle
 from PyQt6.QtCore import Qt
-import pathlib,os
+import pathlib
+import os
 from alicatLib import AlicatController
+
+
 class AlicatGui(QMainWindow):
     
-    def __init__(self,IP='10.0.1.101',name=' Rosa (80 Bar) ',parent=None):
+    def __init__(self, IP='10.0.1.101', name=' Rosa (80 Bar) ', parent=None):
        
-        super(AlicatGui,self).__init__(parent)
+        super(AlicatGui, self).__init__(parent)
         p = pathlib.Path(__file__)
         sepa = os.sep
         
-        self.icon=str(p.parent) + sepa+'icons'+sepa
-        self.setWindowIcon(QIcon(self.icon+'LOA.png'))
+        self.icon = str(p.parent) + sepa + 'icons' + sepa
+        self.setWindowIcon(QIcon(self.icon + 'LOA.png'))
         
         self.raise_()
         self.setUp()
@@ -41,8 +46,7 @@ class AlicatGui(QMainWindow):
         self.threadPressure = THREADPRESSURE(self)
         self.threadPressure.start()
         self.threadPressure.MEAS.connect(self.aff)
-        
-    
+         
     def setUp(self):
         central = QWidget()
         main_layout = QVBoxLayout()
@@ -67,7 +71,7 @@ class AlicatGui(QMainWindow):
         self.setValueSpinBox.setRange(0, 80)
         self.setValueSpinBox.setSuffix(' Bar')
         self.labelPressure = QLabel('Pressure Set Point')
-        h1Layout.addWidget(self.labelPressure )
+        h1Layout.addWidget(self.labelPressure)
         h1Layout.addWidget(self.setValueSpinBox)
 
         h2Layout = QHBoxLayout()
@@ -80,8 +84,6 @@ class AlicatGui(QMainWindow):
         V1Layout.addLayout(h2Layout)
         hLayout.addLayout(V1Layout)
         main_layout.addLayout(hLayout)
-
-
 
     def actionButton(self):
         self.dial.valueChanged.connect(self._on_dial_change)
@@ -101,34 +103,29 @@ class AlicatGui(QMainWindow):
         self.dial.blockSignals(False)
         self.alicat.set_setpoint(float(self.setValueSpinBox.value())) 
 
-    
-    
-    def aff(self,M):
+    def aff(self, M):
         self.getValueSpinBox.setText(M + ' Bar')
 
-    def closeEvent(self,event):
+    def closeEvent(self, event):
         
         self.threadPressure.stopThread()
         self.alicat.disconnect()
-        
         time.sleep(0.5)
         event.accept()
+        
         
 class THREADPRESSURE(QtCore.QThread) :  
     
     
-    MEAS=QtCore.pyqtSignal(str)
+    MEAS = QtCore.pyqtSignal(str)
     
-    def __init__(self,parent):
+    def __init__(self, parent):
         super(THREADPRESSURE,self).__init__(parent)
         self.parent = parent
         self.stop = False
         
-    def run(self) :
-        while True:
-            if self.stop == True:
-                print('stop thread')
-                break
+    def run(self):
+        while self.stop is False:
             pressure = str(round(self.parent.alicat.get_pressure(),2))
             self.MEAS.emit(pressure)
             time.sleep(0.5)
